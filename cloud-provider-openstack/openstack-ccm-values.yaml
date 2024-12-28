@@ -1,0 +1,20 @@
+secret:
+  enabled: true
+  name: cloud-config
+  create: true
+
+# Details => https://github.com/kubernetes/cloud-provider-openstack/blob/master/docs/openstack-cloud-controller-manager/using-openstack-cloud-controller-manager.md#config-openstack-cloud-controller-manager
+cloudConfig:
+  global:
+    auth-url: https://<OPENSTACK_API_ENDPOINT>:5000
+    application-credential-id: "<APP_CREDS_ID>"
+    application-credential-secret: "<APP_CREDS_SECRET>"
+    region: "RegionOne"
+    # ca-file: "/etc/kubernetes/openstack-ca.crt"
+    tls-insecure: true
+
+  networking:
+  loadBalancer:
+  blockStorage:
+  metadata:
+  route:

@@ -1,0 +1,216 @@
+apiVersion: v1
+data:
+  cacert: <YOUR_OPENSTACK_API_CERT_BASE64>
+  clouds.yaml: <YOUR_OPENSTACK_CLOUDS_YAML_BASE64>
+kind: Secret
+metadata:
+  labels:
+    clusterctl.cluster.x-k8s.io/move: "true"
+  name: <CLUSTER_NAME>-cloud-config
+
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: <CLUSTER_NAME>
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 10.244.0.0/16
+    serviceDomain: cluster.local
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+    kind: TalosControlPlane
+    name: <CLUSTER_NAME>-cp
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: OpenStackCluster
+    name: <CLUSTER_NAME>
+
+
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+kind: TalosControlPlane
+metadata:
+  name: <CLUSTER_NAME>-cp
+spec:
+  version: <KUBERNETES_VERSION>
+  replicas: 1
+  infrastructureTemplate:
+    kind: OpenStackMachineTemplate
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    name: <CLUSTER_NAME>-cp
+  controlPlaneConfig:
+    controlplane:
+      generateType: init
+      talosVersion: <TALOS_VERSION>
+      configPatches:
+      - op: add
+        path: /machine/kubelet/extraArgs
+        value:
+          cloud-provider: external
+      - op: add
+        path: /cluster/apiServer/extraArgs
+        value:
+          cloud-provider: external
+      - op: add
+        path: /cluster/controllerManager/extraArgs
+        value:
+          cloud-provider: external
+      # - op: add
+      #   path: /cluster/allowSchedulingOnMasters
+      #   value: true
+      - op: replace
+        path: /machine/install
+        value:
+          disk: /dev/vda
+      - op: add
+        path: /cluster/network/cni
+        value:
+          name: custom
+          urls:
+            - https://raw.githubusercontent.com/projectcalico/calico/refs/heads/master/manifests/calico.yaml
+      - op: add
+        path: /machine/features/kubernetesTalosAPIAccess
+        value:
+          enabled: true
+          allowedRoles:
+              - os:reader
+          allowedKubernetesNamespaces:
+              - kube-system
+
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: OpenStackCluster
+metadata:
+  name: <CLUSTER_NAME>
+spec:
+  apiServerLoadBalancer: 
+    enabled: true
+    # enabled: false
+  externalNetwork:
+    id: <YOUR_OPENSTACK_EXTERNAL_NET_ID>
+  identityRef:
+    cloudName: openstack
+    name: <CLUSTER_NAME>-cloud-config
+  managedSecurityGroups:
+    allNodesSecurityGroupRules:
+    - description: Created by cluster-api-provider-openstack - BGP (calico)
+      direction: ingress
+      etherType: IPv4
+      name: BGP (Calico)
+      portRangeMax: 179
+      portRangeMin: 179
+      protocol: tcp
+      remoteManagedGroups:
+      - controlplane
+      - worker
+    - description: Created by cluster-api-provider-openstack - IP-in-IP (calico)
+      direction: ingress
+      etherType: IPv4
+      name: IP-in-IP (calico)
+      protocol: "4"
+      remoteManagedGroups:
+      - controlplane
+      - worker
+  managedSubnets:
+  - cidr: 10.10.1.0/24
+    dnsNameservers:
+    - 192.168.10.1
+
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: OpenStackMachineTemplate
+metadata:
+  name: <CLUSTER_NAME>-cp
+spec:
+  template:
+    spec:
+      flavor: <DESIRED_FLAVOR>
+      rootVolume:
+        sizeGiB: 24
+      image:
+        filter:
+          name: <YOUR_OPENSTACK_IMAGE_NAME>
+      sshKeyName: <YOUR_OPENSTACK_SSH_KEYPAIR_NAME>
+
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+kind: TalosConfigTemplate
+metadata:
+  name: <CLUSTER_NAME>-wk
+  labels:
+    cluster.x-k8s.io/cluster-name: <CLUSTER_NAME>
+spec:
+  template:
+    spec:
+      generateType: join
+      talosVersion: <TALOS_VERSION>
+      configPatches:
+      - op: replace
+        path: /machine/install
+        value:
+          disk: /dev/vda
+      - op: add
+        path: /machine/kubelet/extraArgs
+        value:
+          cloud-provider: external
+      - op: add
+        path: /cluster/network/cni
+        value:
+          name: custom
+          urls:
+            - https://raw.githubusercontent.com/projectcalico/calico/refs/heads/master/manifests/calico.yaml
+
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: <CLUSTER_NAME>-wk
+  labels:
+    cluster.x-k8s.io/cluster-name: <CLUSTER_NAME>
+    pool: <CLUSTER_NAME>-wk
+spec:
+  replicas: 1
+  clusterName: <CLUSTER_NAME>
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: <CLUSTER_NAME>
+      pool: <CLUSTER_NAME>-wk
+  template:
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: <CLUSTER_NAME>
+        pool: <CLUSTER_NAME>-wk
+    spec:
+      version: <KUBERNETES_VERSION>
+      clusterName: <CLUSTER_NAME>
+      bootstrap:
+        configRef:
+          name: <CLUSTER_NAME>-wk
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+          kind: TalosConfigTemplate
+      infrastructureRef:
+        name: <CLUSTER_NAME>-wk
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: OpenStackMachineTemplate
+
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: OpenStackMachineTemplate
+metadata:
+  name: <CLUSTER_NAME>-wk
+spec:
+  template:
+    spec:
+      flavor: <DESIRED_FLAVOR>
+      rootVolume:
+        sizeGiB: 24
+      image:
+        filter:
+          name: <YOUR_OPENSTACK_IMAGE_NAME>
+      sshKeyName: <YOUR_OPENSTACK_SSH_KEYPAIR_NAME>
+
+---
+

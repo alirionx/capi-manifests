@@ -1,0 +1,37 @@
+secret:
+  enabled: true
+  hostMount: true
+  create: true
+  filename: cloud.conf
+  name: cinder-csi-cloud-config
+  data:
+    # Details => https://github.com/kubernetes/cloud-provider-openstack/blob/master/docs/openstack-cloud-controller-manager/using-openstack-cloud-controller-manager.md#config-openstack-cloud-controller-manager
+    cloud.conf: |-
+      [Global]
+      auth-url=https://<OPENSTACK_API_ENDPOINT>:5000
+      application-credential-id="<APP_CREDS_ID>"
+      application-credential-secret="<APP_CREDS_SECRET>"
+      region="RegionOne"
+      # ca-file="/etc/kubernetes/openstack-ca.crt"
+      tls-insecure=true
+
+      [Networking]
+      [LoadBalancer]
+      
+storageClass:
+  enabled: true
+  delete:
+    isDefault: true
+    allowVolumeExpansion: true
+  retain:
+    isDefault: false
+    allowVolumeExpansion: true
+
+csi:
+  plugin:
+    volumes: []
+    volumeMounts: 
+      - name: cloud-config
+        mountPath: /etc/kubernetes
+        readOnly: true
+    
